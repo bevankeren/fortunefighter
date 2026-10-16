@@ -546,6 +546,9 @@ local KNOWN_ATTACK_ANIM_IDS = {
 	["18986951866"] = true,
 	["18997147938"] = true,
 	["18986953749"] = true,
+	["18505543219"] = true,
+	["18505554445"] = true,
+	["102539226343990"] = true,
 }
 
 local function on_enemy_anim(plr, track_obj)
@@ -699,6 +702,18 @@ local function bind_duel_remotes()
 		return false
 	end
 
+	local function is_me(obj)
+		if not obj then return false end
+		local c = my_char()
+		if typeof(obj) == "Instance" then
+			if c and (obj == c or obj:IsDescendantOf(c)) then return true end
+			if obj.Name == lp.Name then return true end
+		elseif type(obj) == "string" then
+			if obj == lp.Name or (c and obj == c:GetFullName()) or obj:find(lp.Name, 1, true) then return true end
+		end
+		return false
+	end
+
 	-- Sound router
 	table.insert(conns, ProximitySoundEvent.OnClientEvent:Connect(function(action, torso, asset, key, ...)
 		if not cfg.enabled then return end
@@ -712,7 +727,12 @@ local function bind_duel_remotes()
 			for plr, tr in pairs(track) do
 				if t - tr.last_swing < 0.8 and tr.last_swing > best_t then best, best_t = plr, tr.last_swing end
 			end
-			if best then pcall(on_impact, best) end
+			if best then
+				pcall(on_impact, best)
+				if is_me(torso) then
+					resolve_pending_exchange("hit_or_blocked", t)
+				end
+			end
 			return
 		end
 
@@ -739,19 +759,16 @@ local function bind_duel_remotes()
 		table.insert(conns, CombatVFXEvent.OnClientEvent:Connect(function(etype, target, meta)
 			local c = my_char()
 			if not c then return end
-			local ts = tostring(target)
-			local on_me = ts == c:GetFullName()
+			local on_me = is_me(target)
 			local t = now()
 			if etype == "parry" then
-				local reactor_me = type(meta) == "table" and tostring(meta.reactor) == c:GetFullName()
+				local reactor_me = (type(meta) == "table" and is_me(meta.reactor)) or on_me
 				if reactor_me then
 					stats.parries += 1
 					print(("[ap] %s *** PARRY LANDED *** total=%d"):format(stamp(), stats.parries))
 					horizon = 0
 					release_block("parry landed")
 					resolve_pending_exchange("parry", t)
-				elseif on_me then
-					print(("[ap] %s parried BY %s"):format(stamp(), ts:gsub("Workspace%.", "")))
 				else
 					local plr = Players:GetPlayerFromCharacter(target)
 					if plr then get_track(plr).stun_until = now() + 1.2 end
@@ -775,8 +792,7 @@ local function bind_duel_remotes()
 	-- Damage indicator
 	if DamageIndicatorEvent then
 		table.insert(conns, DamageIndicatorEvent.OnClientEvent:Connect(function(who, amount, tag, flag)
-			local c = my_char()
-			if not c or tostring(who) ~= c:GetFullName() then return end
+			if not is_me(who) then return end
 			local t = now()
 			if tag == "blocked" then
 				stats.blocked += 1
